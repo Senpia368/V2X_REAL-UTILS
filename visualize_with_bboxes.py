@@ -3,6 +3,7 @@ import open3d as o3d
 from pathlib import Path
 import yaml
 from scipy.spatial.transform import Rotation
+from utils import boxes_to_corners_3d
 
 def create_transformation_matrix(pose):
     """Create 4x4 transformation matrix from pose [x,y,z,rx,ry,rz]."""
@@ -96,6 +97,6 @@ def process_frame(bin_path, yaml_path):
     visualize_objects(points, objects_info, lidar_pose, true_ego_pose)
 
 if __name__ == "__main__":
-    bin_file = r"V2X-Real\data\v2xreal\train\2023-04-04-14-04-53_21_1\-1\000008.bin"  # Replace with your .bin file path
-    yaml_file = r"V2X-Real\data\v2xreal\train\2023-04-04-14-04-53_21_1\-1\000008.yaml"  # Replace with your .yaml file path
+    bin_file = r"2023-03-17-15-53-02_1_0\-2\000014.bin"  # Replace with your .bin file path
+    yaml_file = r"2023-03-17-15-53-02_1_0\-2\000014.yaml"  # Replace with your .yaml file path
     process_frame(bin_file, yaml_file)
