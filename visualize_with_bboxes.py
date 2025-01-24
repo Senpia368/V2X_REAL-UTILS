@@ -22,13 +22,8 @@ def transform_points(points, pose):
 
 def get_box_corners(center, extent, angle):
     """Get corners of 3D bounding box."""
-    l, w, h = extent[0]/2, extent[1]/2, extent[2]/2
-    corners = np.array([
-        [ l,  w,  h], [ l,  w, -h], [ l, -w,  h], [ l, -w, -h],
-        [-l,  w,  h], [-l,  w, -h], [-l, -w,  h], [-l, -w, -h]
-    ])
-    R = Rotation.from_euler('xyz', angle).as_matrix()
-    corners = (R @ corners.T).T + center
+    box = [center[0], center[1], center[2], extent[0], extent[1], extent[2], angle[0], 0]
+    corners = boxes_to_corners_3d(np.array([box]), 'lwh')[0]
     return corners
 
 def transform_object_info_to_lidar(obj_info, lidar_pose, true_ego_pose):
@@ -65,8 +60,8 @@ def visualize_objects(points, objects_info, lidar_pose, true_ego_pose):
             lidar_obj_info['angle']
         )
         lines = [
-            [0, 1], [1, 2], [2, 3], [3, 0],  # Bottom rectangle
-            [4, 5], [5, 6], [6, 7], [7, 4],  # Top rectangle
+            [0, 1], [1, 2], [2, 3], [0, 3],  # Bottom rectangle
+            [4, 5], [5, 6], [6, 7], [4, 7],  # Top rectangle
             [0, 4], [1, 5], [2, 6], [3, 7]   # Connections
         ]
         colors = [[1, 0, 0] for _ in range(len(lines))]
@@ -97,6 +92,6 @@ def process_frame(bin_path, yaml_path):
     visualize_objects(points, objects_info, lidar_pose, true_ego_pose)
 
 if __name__ == "__main__":
-    bin_file = r"2023-03-17-15-53-02_1_0\-2\000014.bin"  # Replace with your .bin file path
-    yaml_file = r"2023-03-17-15-53-02_1_0\-2\000014.yaml"  # Replace with your .yaml file path
+    bin_file = r"V2X-Real\data\v2xreal\train\2023-03-23-15-39-40_3_1\-2\000016.bin"  # Replace with your .bin file path
+    yaml_file = r"V2X-Real\data\v2xreal\train\2023-03-23-15-39-40_3_1\-2\000016.yaml"  # Replace with your .yaml file path
     process_frame(bin_file, yaml_file)
