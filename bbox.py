@@ -61,10 +61,11 @@ def visualize_bboxes(yaml_path, bin_path):
     boxes = []
     for vid, vdata in data['vehicles'].items():
         roll, pitch, yaw = vdata['angle']
+        length, width, height = vdata['extent']
         angle_deg = np.array([0,0,yaw], dtype=np.float32) 
         angle_rad = np.radians(angle_deg)
         location = np.array(vdata['location'], dtype=np.float32)
-        extent = np.array(vdata['extent'], dtype=np.float32)  # extent is in (length, width, height) format
+        extent = np.array([length,width,height], dtype=np.float32)  # extent is in (length, width, height) format
 
         # Create oriented bounding box (using center, extent, rotation)
         obb = o3d.geometry.OrientedBoundingBox()
@@ -74,12 +75,12 @@ def visualize_bboxes(yaml_path, bin_path):
         # Rotation from angles (roll, pitch, yaw)
         R = o3d.geometry.get_rotation_matrix_from_xyz(angle_rad)
         obb.R = R
-        # obb_lidar = convert_bbox_to_lidar(obb, data['lidar_pose'])
-        obb_lidar = obb
+        obb_lidar = convert_bbox_to_lidar(obb, data['lidar_pose'])
+        # obb_lidar = obb
 
         # Convert OBB to lines and color them
         lineset = o3d.geometry.LineSet.create_from_oriented_bounding_box(obb_lidar)
-        color = colors[vdata['obj_type']]
+        color = colors[vdata['obj_type']] if vdata['obj_type'] in colors else [1,1,1]
         lineset.colors = o3d.utility.Vector3dVector([color] * len(lineset.lines))
 
         boxes.append(lineset)
@@ -92,14 +93,13 @@ def visualize_bboxes(yaml_path, bin_path):
     vis.add_geometry(pcd)
     for b in boxes:
         vis.add_geometry(b)
-    opt = vis.get_render_option()
-    opt.background_color = np.array([0, 0, 0])  # set black background
+    
     vis.run()
     vis.destroy_window()
 
     print(len(boxes), 'boxes visualized')
 
 if __name__ == '__main__':
-    bin_file = r"2023-03-17-15-53-02_1_0\-1\000012.bin"  # Replace with your .bin file path
-    yaml_file = r"2023-03-17-15-53-02_1_0\-1\000012.yaml"  # Replace with your .yaml file path
+    bin_file = r"V2X-Real\data\v2xreal\train\2023-03-23-15-39-40_3_1\-2\000016.bin"  # Replace with your .bin file path
+    yaml_file = r"V2X-Real\data\v2xreal\train\2023-03-23-15-39-40_3_1\-2\000016.yaml"  # Replace with your .yaml file path
     visualize_bboxes(yaml_file, bin_file)
