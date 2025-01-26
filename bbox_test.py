@@ -1,8 +1,11 @@
 import numpy as np
 import open3d as o3d
 import yaml
+import os
 
 from scipy.spatial.transform import Rotation as R
+from concurrent.futures import ProcessPoolExecutor
+
 
 # -----------
 # UTILITIES
@@ -156,7 +159,7 @@ def visualize_bboxes(yaml_path, bin_path, visualize=True):
     world_to_lidar = get_world_to_lidar(data['lidar_pose'])
 
     boxes = []
-    corners = []
+    vid_corners = {}
     for vid, vdata in data['vehicles'].items():
         roll, yaw, pitch = vdata['angle']         # degrees
         length, width, height = vdata['extent']   # L,W,H
@@ -173,7 +176,7 @@ def visualize_bboxes(yaml_path, bin_path, visualize=True):
 
         # 2) Transform corners into LIDAR coords
         corners_lidar = transform_points(corners_world, world_to_lidar)
-        corners.append(corners_lidar)
+        vid_corners[vid] = corners_lidar
         # 3) Create a line set from these corners
         obj_type = vdata['obj_type']
         color = colors[obj_type] if obj_type in colors else [1,1,1]
@@ -196,9 +199,14 @@ def visualize_bboxes(yaml_path, bin_path, visualize=True):
         vis.destroy_window()
 
         print(len(boxes), 'boxes visualized')
-    return corners
+    return vid_corners
 
-def visualize_cropped_objects(pcd, box_corner_list):
+def close_window(vis):
+                print("Enter key pressed. Closing window.")
+                vis.close()
+                return False
+
+def extract_cropped_objects_from_file(pcd, vid_corners, vid_type_dict, show=True, save=False, src_dir='v2xreal', save_dir='cropped_objects'):
     """
     For each bounding box corners array in 'box_corner_list':
       1) Create an OrientedBoundingBox from the corners
@@ -209,27 +217,121 @@ def visualize_cropped_objects(pcd, box_corner_list):
       pcd              : open3d.geometry.PointCloud in LiDAR coords
       box_corner_list  : list of (8,3) arrays, each the 8 corners of one bounding box
     """
-    for i, corners in enumerate(box_corner_list):
+    src_dir = src_dir.replace('\\', '/')
+    src_dir = '_'.join(src_dir.split('.')[0].split('/'))
+    for vid, corners in vid_corners.items():
         # Convert corners to an Open3D OrientedBoundingBox
         obb = o3d.geometry.OrientedBoundingBox.create_from_points(
             o3d.utility.Vector3dVector(corners)
         )
         cropped_pcd = pcd.crop(obb)
 
-        print(f"[Object {i}] {len(cropped_pcd.points)} points inside this bounding box.")
+        print(f"[{vid_type_dict[vid]} {vid}] {len(cropped_pcd.points)} points inside this bounding box.")
         
         # If empty, skip
         if len(cropped_pcd.points) == 0:
             continue
+        if show:
+            # Visualize in a dedicated window
+            # o3d.visualization.draw_geometries([cropped_pcd])
+            
+            vis = o3d.visualization.VisualizerWithKeyCallback()
+            vis.create_window()
+            vis.add_geometry(cropped_pcd)
+            
+        
+            vis.register_key_callback(257, close_window)
+            
+            
+            vis.run()
+            vis.destroy_window()
+        if save:
+            # Save to a file
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            dest_dir = os.path.join(save_dir, vid_type_dict[vid])
+            if not os.path.exists(dest_dir):
+                os.makedirs(dest_dir)
+            filename = os.path.join(dest_dir, f"{src_dir}_{vid}.pcd")
+            print(f"Saving to {filename}")
+            o3d.io.write_point_cloud(filename, cropped_pcd)
 
-        # Visualize in a dedicated window
-        o3d.visualization.draw_geometries([cropped_pcd])
+def get_vid_type_mapping(yaml_path):
+    '''
+    Get the mapping of vehicle id to vehicle type
+    '''
+    with open(yaml_path, 'r') as f:
+        data = yaml.safe_load(f)
+    vid_type_mapping = {}
+    for vid, vdata in data['vehicles'].items():
+        vid_type_mapping[vid] = vdata['obj_type']
+    return vid_type_mapping
 
-if __name__ == '__main__':
-    bin_path = r"V2X-Real\data\v2xreal\train\2023-03-23-15-39-40_3_1\-2\000026.bin"  # Replace with your .bin file path
-    yaml_path = r"V2X-Real\data\v2xreal\train\2023-03-23-15-39-40_3_1\-2\000026.yaml"  # Replace with your .yaml file path
-    corners = visualize_bboxes(yaml_path, bin_path, False)
-    pcd = points = np.fromfile(bin_path, dtype=np.float32).reshape(-1, 4)
+def crop_and_save_objects_pcd(dir_path, dest_dir):
+    '''
+    Crop and save objects from all .bin files in a directory
+    '''
+    for filename in os.listdir(dir_path):
+        if filename.endswith(".bin"):
+            bin_path = os.path.join(dir_path, filename)
+            yaml_path = os.path.join(dir_path, filename.replace(".bin", ".yaml"))
+            vid_type_dict = get_vid_type_mapping(yaml_path)
+            vid_corners = visualize_bboxes(yaml_path, bin_path, False)
+            pcd = points = np.fromfile(bin_path, dtype=np.float32).reshape(-1, 4)
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points[:, :3])
+            extract_cropped_objects_from_file(pcd, vid_corners, vid_type_dict, False, True, bin_path, os.path.join(dest_dir, "cropped_objects"))
+
+def visualize_pcd(pcd, title=""):
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(window_name=title)
+    vis = o3d.visualization.VisualizerWithKeyCallback()
+    vis.create_window()
+    vis.add_geometry(pcd)
+
+
+    vis.register_key_callback(257, close_window)
+    
+    vis.run()
+    vis.destroy_window()
+
+def process_file(bin_path, yaml_path, dest_dir):
+    vid_type_dict = get_vid_type_mapping(yaml_path)
+    vid_corners = visualize_bboxes(yaml_path, bin_path, False)
+    points = np.fromfile(bin_path, dtype=np.float32).reshape(-1, 4)
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points[:, :3])
-    visualize_cropped_objects(pcd, corners)
+    extract_cropped_objects_from_file(pcd, vid_corners, vid_type_dict, False, True, bin_path, dest_dir)
+
+def crop_and_save_objects_pcd_parallel(dir_path, dest_dir):
+    '''
+    Crop and save objects from all .bin files in a directory
+    '''
+    with ProcessPoolExecutor() as executor:
+        for filename in os.listdir(dir_path):
+            if filename.endswith(".bin"):
+                bin_path = os.path.join(dir_path, filename)
+                yaml_path = os.path.join(dir_path, filename.replace(".bin", ".yaml"))
+                executor.submit(process_file, bin_path, yaml_path, dest_dir)
+    
+if __name__ == '__main__':
+    # bin_path = r"2023-03-17-15-53-02_1_0\-2\000006.bin"  # Replace with your .bin file path
+    # yaml_path = r"2023-03-17-15-53-02_1_0\-2\000006.yaml"  # Replace with your .yaml file path
+    # corners = visualize_bboxes(yaml_path, bin_path, True)
+    # vid_type_dict = get_vid_type_mapping(yaml_path)
+    # pcd = points = np.fromfile(bin_path, dtype=np.float32).reshape(-1, 4)
+    # pcd = o3d.geometry.PointCloud()
+    # pcd.points = o3d.utility.Vector3dVector(points[:, :3])
+    # extract_cropped_objects_from_file(pcd, corners, vid_type_dict)
+    # crop_and_save_objects_pcd("2023-03-17-15-53-02_1_0/-2", dest_dir='')
+    crop_and_save_objects_pcd_parallel("2023-03-17-15-53-02_1_0/-1", dest_dir='cropped_objects')
+    for folder in os.listdir('cropped_objects'):
+        print(f'{folder}: {len(os.listdir(os.path.join("cropped_objects", folder)))}')
+    #     if os.path.isdir(os.path.join('cropped_objects', folder)):
+    #         for filename in os.listdir(os.path.join('cropped_objects', folder)):
+    #             if filename.endswith(".pcd"):
+    #                 pcd = o3d.io.read_point_cloud(os.path.join('cropped_objects', folder, filename))
+    #                 title = f"{folder} {filename}"
+    #                 visualize_pcd(pcd, title)
+                    
+    #         break
